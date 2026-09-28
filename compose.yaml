@@ -1,0 +1,35 @@
+# Entorno de desarrollo con Laravel Sail (`./vendor/bin/sail up`).
+#
+# Un único servicio a propósito: la aplicación usa SQLite, que es un archivo
+# dentro del propio proyecto, así que no hace falta ningún contenedor de base
+# de datos. Menos superficie, menos piezas que mantener.
+#
+# Si más adelante se migra a MySQL o PostgreSQL, se añade aquí el servicio
+# correspondiente con `php artisan sail:install --with=mysql` (o `--with=pgsql`)
+# y se ajusta el bloque de base de datos del .env.
+services:
+    laravel.test:
+        build:
+            context: './vendor/laravel/sail/runtimes/8.5'
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP}'
+        image: 'sail-8.5/app'
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
+        ports:
+            - '${APP_PORT:-80}:80'
+            - '${VITE_PORT:-5173}:${VITE_PORT:-5173}'
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_SAIL: 1
+            XDEBUG_MODE: '${SAIL_XDEBUG_MODE:-off}'
+            XDEBUG_CONFIG: '${SAIL_XDEBUG_CONFIG:-client_host=host.docker.internal}'
+            IGNITION_LOCAL_SITES_PATH: '${PWD}'
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+networks:
+    sail:
+        driver: bridge
