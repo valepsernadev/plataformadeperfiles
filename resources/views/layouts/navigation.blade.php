@@ -15,9 +15,14 @@
                         Panel
                     </x-nav-link>
 
-                    <x-nav-link :href="route('perfil.edit')" :active="request()->routeIs('perfil.*')">
-                        Mi perfil
-                    </x-nav-link>
+                    {{-- El administrador no tiene perfil, así que no se le
+                         ofrece este enlace; si escribe la URL a mano, el
+                         middleware `no-admin` lo devuelve al panel. --}}
+                    @unless (auth()->user()->esAdministrador())
+                        <x-nav-link :href="route('perfil.edit')" :active="request()->routeIs('perfil.*')">
+                            Mi perfil
+                        </x-nav-link>
+                    @endunless
 
                     {{-- El enlace solo se pinta para administradores, pero eso es
                          puramente cosmético: la barrera real es el middleware
@@ -46,9 +51,11 @@
                     </x-slot>
 
                     <x-slot name="content">
-                        <x-dropdown-link :href="route('perfil.edit')">
-                            Mi perfil
-                        </x-dropdown-link>
+                        @unless (auth()->user()->esAdministrador())
+                            <x-dropdown-link :href="route('perfil.edit')">
+                                Mi perfil
+                            </x-dropdown-link>
+                        @endunless
 
                         <form method="POST" action="{{ route('logout') }}">
                             @csrf
@@ -81,9 +88,11 @@
                 Panel
             </x-responsive-nav-link>
 
-            <x-responsive-nav-link :href="route('perfil.edit')" :active="request()->routeIs('perfil.*')">
-                Mi perfil
-            </x-responsive-nav-link>
+            @unless (auth()->user()->esAdministrador())
+                <x-responsive-nav-link :href="route('perfil.edit')" :active="request()->routeIs('perfil.*')">
+                    Mi perfil
+                </x-responsive-nav-link>
+            @endunless
 
             @if (auth()->user()->esAdministrador())
                 <x-responsive-nav-link :href="route('admin.usuarios.index')" :active="request()->routeIs('admin.*')">
@@ -100,9 +109,11 @@
             </div>
 
             <div class="mt-3 space-y-1">
-                <x-responsive-nav-link :href="route('perfil.edit')">
-                    Mi perfil
-                </x-responsive-nav-link>
+                @unless (auth()->user()->esAdministrador())
+                    <x-responsive-nav-link :href="route('perfil.edit')">
+                        Mi perfil
+                    </x-responsive-nav-link>
+                @endunless
 
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf

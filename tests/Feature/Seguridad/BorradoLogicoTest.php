@@ -63,16 +63,21 @@ class BorradoLogicoTest extends TestCase
         $this->assertGuest();
     }
 
-    public function test_una_cuenta_eliminada_desaparece_del_listado(): void
+    public function test_una_cuenta_eliminada_sigue_en_el_listado_marcada_y_sin_acciones(): void
     {
         $admin = User::factory()->administrador()->create();
         $objetivo = User::factory()->create(['nombre_completo' => 'Cuenta Que Se Va']);
 
         $this->actingAs($admin)->delete("/admin/usuarios/{$objetivo->id}");
 
-        $this->actingAs($admin)
-            ->get('/admin/usuarios')
-            ->assertDontSee('Cuenta Que Se Va');
+        $response = $this->actingAs($admin)->get('/admin/usuarios');
+
+        // Sigue apareciendo en el listado, marcada como eliminada...
+        $response->assertSee('Cuenta Que Se Va');
+        $response->assertSee('Eliminado');
+
+        // ...pero su fila no ofrece ninguna acción.
+        $response->assertDontSee("/admin/usuarios/{$objetivo->id}", false);
     }
 
     public function test_la_tarjeta_de_una_cuenta_eliminada_no_se_borra_fisicamente(): void

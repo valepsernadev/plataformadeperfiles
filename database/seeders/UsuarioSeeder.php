@@ -29,7 +29,7 @@ class UsuarioSeeder extends Seeder
     {
         $this->crear(
             datos: [
-                'nombre_completo' => 'Ana Restrepo',
+                'nombre_completo' => 'Administrador',
                 'numero_identificacion' => '1000000001',
                 'email' => 'admin@plataforma.test',
                 'telefono' => '3000000001',

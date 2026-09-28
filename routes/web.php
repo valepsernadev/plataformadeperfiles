@@ -22,8 +22,11 @@ Route::get('/dashboard', function () {
 | no existe una URL que permita apuntar al perfil de otra persona. Los
 | controladores, además, revalidan la pertenencia con `UserPolicy`.
 |
+| `no-admin` deja estas rutas fuera del alcance del rol administrador: su panel
+| sirve solo para administrar usuarios y no tiene perfil propio.
+|
 */
-Route::middleware('auth')->group(function () {
+Route::middleware(['auth', 'no-admin'])->group(function () {
     Route::get('/perfil', [PerfilController::class, 'edit'])->name('perfil.edit');
     Route::patch('/perfil', [PerfilController::class, 'update'])->name('perfil.update');
     Route::delete('/perfil', [PerfilController::class, 'destroy'])->name('perfil.destroy');
@@ -46,7 +49,13 @@ Route::middleware('auth')->group(function () {
 */
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
     Route::get('/usuarios', [AdminUsuarioController::class, 'index'])->name('usuarios.index');
-    Route::delete('/usuarios/{usuario}', [AdminUsuarioController::class, 'destroy'])->name('usuarios.destroy');
+
+    // `withTrashed()` permite que la ruta resuelva también cuentas con borrado
+    // lógico, para que el controlador pueda rechazarlas explícitamente en vez
+    // de dar un 404.
+    Route::delete('/usuarios/{usuario}', [AdminUsuarioController::class, 'destroy'])
+        ->name('usuarios.destroy')
+        ->withTrashed();
 });
 
 require __DIR__.'/auth.php';

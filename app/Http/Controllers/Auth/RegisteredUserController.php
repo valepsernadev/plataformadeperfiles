@@ -36,7 +36,7 @@ class RegisteredUserController extends Controller
         $datos = $request->validated();
 
         $usuario = DB::transaction(function () use ($datos): User {
-            $usuario = User::create([
+            $usuario = new User([
                 'nombre_completo' => $datos['nombre_completo'],
                 'numero_identificacion' => $datos['numero_identificacion'],
                 'email' => $datos['email'],
@@ -48,9 +48,14 @@ class RegisteredUserController extends Controller
                 'ocupacion' => $datos['ocupacion'],
                 'ingresos_mensuales' => $datos['ingresos_mensuales'],
                 'entidad_bancaria' => $datos['entidad_bancaria'],
-                // `role` NO se escribe aquí a propósito: toda cuenta nueva nace
-                // como `usuario` por el valor por defecto de la columna.
             ]);
+
+            // El rol se fija aquí, en el servidor, y con asignación directa (no
+            // masiva): toda cuenta creada desde el registro público es
+            // `usuario`. Cualquier `role` que venga en el POST se ignora, y
+            // `role` tampoco está en la lista blanca del modelo.
+            $usuario->role = 'usuario';
+            $usuario->save();
 
             // La tarjeta se crea a través de la relación, que fija `usuario_id`
             // directamente. El número se cifra solo, por el cast `encrypted`.

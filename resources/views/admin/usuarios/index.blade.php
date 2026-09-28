@@ -58,20 +58,36 @@
                                     {{-- Todo va con `{{ }}`, que escapa HTML. Un nombre
                                          como `<script>alert(1)</script>` se muestra como
                                          texto, no se ejecuta (guía, sección 4). --}}
-                                    <td class="px-6 py-4 text-gray-900">{{ $usuario->nombre_completo }}</td>
+                                    <td class="px-6 py-4 text-gray-900">
+                                        {{ $usuario->nombre_completo }}
+
+                                        @if ($usuario->trashed())
+                                            <span class="ms-2 rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-800">
+                                                Eliminado
+                                            </span>
+                                        @endif
+                                    </td>
                                     <td class="px-6 py-4 text-gray-600">{{ $usuario->email }}</td>
                                     <td class="px-6 py-4 font-mono text-gray-600">{{ $usuario->numero_identificacion }}</td>
                                     <td class="px-6 py-4 text-right">
-                                        <form method="post"
-                                              action="{{ route('admin.usuarios.destroy', $usuario) }}"
-                                              onsubmit="return confirm('¿Marcar esta cuenta como eliminada?');">
-                                            @csrf
-                                            @method('delete')
+                                        {{-- Una cuenta ya eliminada no admite
+                                             ninguna acción. El backend lo
+                                             rechaza igualmente, por si la
+                                             petición llega sin pasar por aquí. --}}
+                                        @if ($usuario->trashed())
+                                            <span class="text-xs text-gray-400">Sin acciones</span>
+                                        @else
+                                            <form method="post"
+                                                  action="{{ route('admin.usuarios.destroy', $usuario) }}"
+                                                  onsubmit="return confirm('¿Marcar esta cuenta como eliminada?');">
+                                                @csrf
+                                                @method('delete')
 
-                                            <x-danger-button>
-                                                Eliminar
-                                            </x-danger-button>
-                                        </form>
+                                                <x-danger-button>
+                                                    Eliminar
+                                                </x-danger-button>
+                                            </form>
+                                        @endif
                                     </td>
                                 </tr>
                             @empty
