@@ -26,7 +26,12 @@ class UserFactory extends Factory
     public function definition(): array
     {
         return [
-            'nombre_completo' => fake()->name(),
+            // Se compone a mano con `firstName` + `lastName` en vez de usar
+            // `fake()->name()`, que en el locale en_US puede devolver un título
+            // ("Dr. Sonny Hessel"). Varias pruebas envían este nombre por
+            // `PATCH /perfil`, donde ahora lo valida la regla `NombrePropio`, y
+            // el punto del título la haría fallar de forma intermitente.
+            'nombre_completo' => fake()->firstName().' '.fake()->lastName(),
             'numero_identificacion' => fake()->unique()->numerify('##########'),
             'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),

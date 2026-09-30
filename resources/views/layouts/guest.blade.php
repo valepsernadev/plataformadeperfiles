@@ -28,5 +28,10 @@
                 {{ $slot }}
             </div>
         </div>
+
+        {{-- Punto de extensión para scripts de las vistas hijas. Lo usa el
+             widget del captcha, cuyo <script> va contra google.com y por eso no
+             se puede empaquetar con Vite. --}}
+        @stack('scripts')
     </body>
 </html>

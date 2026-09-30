@@ -75,7 +75,9 @@ Los controles se implementan en ese orden de prioridad.
 - Autorización verificada en **cada endpoint** del backend (rol + pertenencia del recurso), no solo en la interfaz.
 - **Eloquent** con consultas parametrizadas — nunca SQL crudo concatenado.
 - Cifrado a nivel de aplicación (cast `encrypted` de Laravel) **únicamente** para el número de tarjeta, por ser el único dato clasificado como restringido.
-- Validación de entrada y escape de salida para prevenir XSS.
+- Validación de entrada y escape de salida para prevenir XSS. La validación incluye una regla propia que restringe el nombre a letras, espacios, apóstrofos y guiones, aplicada tanto en el registro como en la edición del perfil.
+- Política de contraseñas con **complejidad mínima**: 8 caracteres, con al menos una letra, un número y un símbolo. Declarada una sola vez para que valga en el registro, el cambio de contraseña y el restablecimiento por correo.
+- **Captcha** en el registro y en el inicio de sesión, como barrera adicional frente a ataques automatizados antes de comprobar credenciales.
 - Protección CSRF (activa por defecto en formularios de Laravel).
 - Cookies de sesión con `HttpOnly`, `Secure`, `SameSite=Strict`.
 - Manejo de errores genérico hacia el usuario, sin detalles internos ni stack traces.

@@ -138,4 +138,103 @@ class RegistrationTest extends TestCase
         $response->assertSessionHasErrors('email');
         $this->assertDatabaseCount('usuarios', 1);
     }
+
+    // -----------------------------------------------------------------------
+    // Regla del nombre (App\Rules\NombrePropio)
+    // -----------------------------------------------------------------------
+
+    public function test_el_nombre_no_admite_digitos(): void
+    {
+        $response = $this->post('/register', $this->datosRegistro([
+            'nombre_completo' => 'Juan Pérez 123',
+        ]));
+
+        $response->assertSessionHasErrors('nombre_completo');
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    public function test_el_nombre_no_admite_etiquetas_ni_simbolos(): void
+    {
+        foreach (['<b>Ana</b>', 'Ana@casa', 'Ana_Gómez', 'Ana#1'] as $invalido) {
+            $this->post('/register', $this->datosRegistro([
+                'nombre_completo' => $invalido,
+            ]))->assertSessionHasErrors('nombre_completo');
+        }
+
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    public function test_el_nombre_admite_tildes_apostrofos_y_guiones(): void
+    {
+        $response = $this->post('/register', $this->datosRegistro([
+            'nombre_completo' => "María José O'Brien-Pérez",
+        ]));
+
+        $response->assertSessionHasNoErrors();
+        $this->assertSame(
+            "María José O'Brien-Pérez",
+            User::firstWhere('email', 'persona@example.test')->nombre_completo
+        );
+    }
+
+    /**
+     * Un espacio de más al pegar no debe convertirse en un error de validación:
+     * la normalización previa lo colapsa antes de comprobar el patrón.
+     */
+    public function test_los_espacios_de_mas_en_el_nombre_se_normalizan(): void
+    {
+        $response = $this->post('/register', $this->datosRegistro([
+            'nombre_completo' => '  María   José  ',
+        ]));
+
+        $response->assertSessionHasNoErrors();
+        $this->assertSame(
+            'María José',
+            User::firstWhere('email', 'persona@example.test')->nombre_completo
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Política de contraseñas (AppServiceProvider::configurarPoliticaDeContrasenas)
+    // -----------------------------------------------------------------------
+
+    public function test_la_contrasena_exige_un_numero(): void
+    {
+        $this->post('/register', $this->datosRegistro([
+            'password' => 'SinNumeros!',
+            'password_confirmation' => 'SinNumeros!',
+        ]))->assertSessionHasErrors('password');
+
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    public function test_la_contrasena_exige_un_simbolo(): void
+    {
+        $this->post('/register', $this->datosRegistro([
+            'password' => 'SinSimbolo123',
+            'password_confirmation' => 'SinSimbolo123',
+        ]))->assertSessionHasErrors('password');
+
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    public function test_la_contrasena_exige_una_longitud_minima(): void
+    {
+        $this->post('/register', $this->datosRegistro([
+            'password' => 'Ab1!',
+            'password_confirmation' => 'Ab1!',
+        ]))->assertSessionHasErrors('password');
+
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    public function test_una_contrasena_que_cumple_la_politica_se_acepta(): void
+    {
+        $this->post('/register', $this->datosRegistro([
+            'password' => 'Password123!',
+            'password_confirmation' => 'Password123!',
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertAuthenticated();
+    }
 }

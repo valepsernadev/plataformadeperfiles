@@ -56,11 +56,14 @@ class PasswordResetTest extends TestCase
         $this->post('/forgot-password', ['email' => $user->email]);
 
         Notification::assertSentTo($user, ResetPassword::class, function ($notification) use ($user) {
+            // La contraseña nueva cumple la política central (letra, número y
+            // símbolo). Con `'password'` a secas, el restablecimiento se
+            // rechaza por no llevar ni número ni símbolo.
             $response = $this->post('/reset-password', [
                 'token' => $notification->token,
                 'email' => $user->email,
-                'password' => 'password',
-                'password_confirmation' => 'password',
+                'password' => 'NuevaPassword123!',
+                'password_confirmation' => 'NuevaPassword123!',
             ]);
 
             $response

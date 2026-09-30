@@ -14,8 +14,21 @@ use Tests\TestCase;
  * administrador, que es la pantalla donde un atacante querría ejecutar código
  * con más privilegios que los suyos.
  *
- * El control es el escape automático de Blade: `{{ }}` escapa, `{!! !!}` no.
- * Estas pruebas verifican que se usa el primero.
+ * Ese escenario se corta ahora en DOS capas, y este archivo prueba las dos:
+ *
+ *  1. ENTRADA — `nombre_completo` lleva la regla `NombrePropio`, así que el
+ *     formulario de registro ya no acepta el nombre con etiquetas. Es lo que
+ *     comprueba `test_el_registro_rechaza_un_nombre_con_etiquetas_html`.
+ *
+ *  2. SALIDA — el escape automático de Blade: `{{ }}` escapa, `{!! !!}` no. Si
+ *     un dato así llegara a la base de datos por otra vía (una importación, un
+ *     seeder, una vulnerabilidad distinta), el escape lo neutraliza igual. Los
+ *     tests de escape crean el registro directamente con la factoría,
+ *     saltándose el formulario, que es justo lo que hace falta para probar esta
+ *     capa por separado.
+ *
+ * La segunda capa sigue siendo la importante para los campos que SÍ son texto
+ * libre —dirección, ocupación—, donde una regla de charset no tiene sentido.
  */
 class XssTest extends TestCase
 {
@@ -69,14 +82,32 @@ class XssTest extends TestCase
         $response->assertSee('&lt;img', false);
     }
 
-    public function test_la_carga_se_guarda_sin_modificar_y_solo_se_escapa_al_mostrarla(): void
+    /**
+     * Capa 1 — el control nuevo. Antes de la regla `NombrePropio`, este POST
+     * creaba la cuenta con el `<script>` dentro; ahora ni siquiera pasa la
+     * validación.
+     */
+    public function test_el_registro_rechaza_un_nombre_con_etiquetas_html(): void
     {
-        $this->post('/register', $this->datosRegistro([
+        $response = $this->post('/register', $this->datosRegistro([
             'nombre_completo' => self::CARGA,
         ]));
 
-        // Lo que hay en la base de datos es el texto tal cual: el escape es una
-        // decisión de la capa de salida, no una mutilación del dato de entrada.
-        $this->assertSame(self::CARGA, User::firstWhere('email', 'persona@example.test')->nombre_completo);
+        $response->assertSessionHasErrors('nombre_completo');
+
+        // Y no se creó nada: el rechazo ocurre antes de tocar la base de datos.
+        $this->assertDatabaseCount('usuarios', 0);
+    }
+
+    /**
+     * Capa 2 — el escape es una decisión de la SALIDA, no una mutilación del
+     * dato de entrada. Un registro que llega por otra vía se guarda tal cual y
+     * se escapa al pintarlo.
+     */
+    public function test_un_nombre_con_script_creado_fuera_del_formulario_se_guarda_sin_modificar(): void
+    {
+        $usuario = User::factory()->create(['nombre_completo' => self::CARGA]);
+
+        $this->assertSame(self::CARGA, $usuario->fresh()->nombre_completo);
     }
 }
