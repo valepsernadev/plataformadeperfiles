@@ -35,4 +35,21 @@ return [
         ],
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | reCAPTCHA v2
+    |--------------------------------------------------------------------------
+    |
+    | Captcha del registro y del inicio de sesión, validado en
+    | app/Rules/Recaptcha.php. `site_key` viaja al navegador (es pública por
+    | diseño); `secret_key` se queda en el servidor y es la que nunca debe
+    | salir del `.env`. Ver el bloque equivalente en `.env.example`.
+    |
+    */
+
+    'recaptcha' => [
+        'site_key' => env('RECAPTCHA_SITE_KEY'),
+        'secret_key' => env('RECAPTCHA_SECRET_KEY'),
+    ],
+
 ];

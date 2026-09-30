@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Contracts\Http\Kernel;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 /**
@@ -76,12 +77,22 @@ class CsrfTest extends TestCase
 
     public function test_con_el_token_correcto_la_peticion_si_pasa(): void
     {
+        // Pasar el entorno a `local` activa el CSRF de verdad, pero de paso
+        // saca la petición del entorno de pruebas y con ello activa TAMBIÉN el
+        // captcha (ver App\Rules\Recaptcha). Como aquí lo que se prueba es el
+        // token CSRF, el captcha se resuelve con un doble y se envía su campo:
+        // así la única variable en juego sigue siendo el `_token`.
+        Http::fake(['*' => Http::response(['success' => true])]);
+
         $this->app['env'] = 'local';
 
         // `withSession` + token real: se simula el envío del formulario tal y
         // como lo haría el navegador.
         $response = $this->withSession(['_token' => 'token-de-prueba'])
-            ->post('/register', $this->datosRegistro(['_token' => 'token-de-prueba']));
+            ->post('/register', $this->datosRegistro([
+                '_token' => 'token-de-prueba',
+                'g-recaptcha-response' => 'token-de-prueba',
+            ]));
 
         $response->assertSessionHasNoErrors();
         $this->assertDatabaseCount('usuarios', 1);

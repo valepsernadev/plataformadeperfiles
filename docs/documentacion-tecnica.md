@@ -28,6 +28,7 @@ La sección **6 (pruebas manuales)** está pensada para que cualquiera del grupo
 | **Tailwind CSS** | 3.4.19 | Estilos que trae Breeze. No se añadió nada de diseño propio. |
 | **Vite** | 8.3.1 | Empaquetado de assets, integrado con Laravel. |
 | **PHPUnit** | 12.5.36 | Pruebas automatizadas de los controles de seguridad. |
+| **reCAPTCHA v2** | — | Captcha de registro y login. **No añade ninguna dependencia**: la verificación se hace con el cliente HTTP que ya trae Laravel (`Http`), no con un paquete externo. |
 
 ### 1.1 Por qué Laravel como monolito
 
@@ -217,10 +218,13 @@ Cada punto indica el activo de la sección 3 de la guía que protege, la amenaza
 
 - **Activo:** código fuente de la aplicación; sesiones de los administradores.
 - **Amenaza:** XSS almacenado. El escenario real de este sistema es concreto: alguien se registra con un `nombre_completo` como `<script>…</script>` y ese nombre se pinta después en el **listado del administrador**, que es justo la pantalla donde al atacante le gustaría ejecutar código con más privilegios que los suyos (la guía lo señala en la sección 4).
-- **Control:** escape automático de Blade. Todas las plantillas usan `{{ }}`, que escapa HTML. **No se usa `{!! !!}` con datos de usuario en ninguna vista.**
-- **Dónde:** todas las plantillas, en particular `resources/views/admin/usuarios/index.blade.php`.
-- **Nota:** el escape es una decisión de la **capa de salida**. El dato se guarda tal cual se escribió y se escapa al mostrarlo; no se "mutila" la entrada.
-- **Comprobación:** `tests/Feature/Seguridad/XssTest.php`.
+- **Control, en dos capas desde la última revisión:**
+  1. **Entrada** — el nombre ya no admite etiquetas ni símbolos (control 3.17). El escenario de arriba ya no se puede provocar desde el formulario.
+  2. **Salida** — escape automático de Blade: todas las plantillas usan `{{ }}`, que escapa HTML. **No se usa `{!! !!}` con datos de usuario en ninguna vista.**
+- **Por qué se mantienen las dos:** la validación de entrada solo sirve donde el dato tiene una forma predecible. `direccion` y `ocupacion` son texto libre por naturaleza y no pueden llevar una regla de charset sin volverse inservibles; para esos campos el escape de salida es lo **único** que protege. La capa 1 reduce la superficie; la capa 2 es la que no se puede quitar.
+- **Dónde:** `app/Rules/NombrePropio.php` (capa 1), todas las plantillas y en particular `resources/views/admin/usuarios/index.blade.php` (capa 2).
+- **Nota:** el escape es una decisión de la **capa de salida**. Un dato que llega a la base de datos por otra vía (una importación, un seeder, una vulnerabilidad distinta) se guarda tal cual y se escapa al mostrarlo; no se "mutila" la entrada.
+- **Comprobación:** `tests/Feature/Seguridad/XssTest.php`, que prueba las dos capas por separado. Ver la prueba manual 6.3.
 
 ### 3.11 Manejo de errores genérico
 
@@ -275,6 +279,37 @@ Cada punto indica el activo de la sección 3 de la guía que protege, la amenaza
 - **Dónde:** `app/Http/Requests/`, migración de `tarjetas`.
 - **Comprobación:** hay una prueba que envía `cvv`, `cvc` y `codigo_seguridad` en el registro y verifica que esas columnas **no existen** en la tabla y que ninguno de esos valores quedó almacenado en ninguna parte de la fila creada.
 
+### 3.17 El nombre solo admite letras, espacios, apóstrofos y guiones
+
+- **Activo:** modelo de datos; sesiones de los administradores (es la primera capa frente al XSS de 3.10).
+- **Amenaza:** XSS almacenado; almacenar datos basura en un campo de identidad.
+- **Control:** regla propia `App\Rules\NombrePropio`, que acepta letras Unicode (tildes incluidas), espacios, apóstrofos (recto y tipográfico) y guiones, y rechaza todo lo demás —dígitos, `<`, `>`, `@`, `#`—. El patrón exige además la estructura "palabra (separador palabra)\*", así que el nombre no puede empezar ni terminar con un separador. Un `prepareForValidation()` normaliza antes de validar (recorta extremos y colapsa espacios repetidos), para que un espacio de más al pegar no se convierta en un error confuso.
+- **Dónde:** `app/Rules/NombrePropio.php`, aplicado en `app/Http/Requests/Auth/RegisterRequest.php` **y** en `app/Http/Requests/PerfilUpdateRequest.php`.
+- **Por qué en los dos sitios:** endurecer solo el registro habría dejado una puerta de atrás trivial — registrarse con un nombre limpio y acto seguido cambiarlo por `<script>…</script>` desde el perfil. `tests/Feature/ProfileTest.php` cubre justamente ese camino.
+- **Lo que NO se restringe, a propósito:** `direccion`, `ocupacion` y `nombre_titular` son texto libre y no llevan esta regla. Sin una forma predecible no hay charset que valga, y para ellos la protección es el escape de salida (3.10).
+- **Comprobación:** `tests/Feature/Auth/RegistrationTest.php` y `tests/Feature/ProfileTest.php`. También a mano: intentar registrarse con `Juan123` y ver el rechazo.
+
+### 3.18 Política de contraseñas: longitud mínima y complejidad
+
+- **Activo:** credenciales de acceso.
+- **Amenaza:** suplantación de identidad por fuerza bruta y ataque de diccionario. El documento reconocía esta carencia en 8.7: hasta ahora la única exigencia era un mínimo de 8 caracteres, así que `12345678` era una contraseña válida.
+- **Control:** como mínimo 8 caracteres, con al menos **una letra, un número y un símbolo**. Se declara **una sola vez** en `AppServiceProvider::configurarPoliticaDeContrasenas()` mediante `Password::defaults()`, y los tres sitios donde se escribe una contraseña la heredan sin tocar nada: registro, cambio desde el perfil y restablecimiento por correo.
+- **Por qué centralizada:** es lo que impide el fallo clásico de endurecer el registro y dejar abierta la puerta de atrás. Si la política viviera solo en `RegisterRequest`, un usuario podría registrarse con una contraseña fuerte y cambiarla inmediatamente por `12345678` desde su perfil.
+- **`uncompromised()` queda fuera a propósito:** la comprobación contra filtraciones conocidas exige llamar a la API de Have I Been Pwned, lo que añadiría una dependencia de red al registro y al cambio de contraseña. Es una mejora razonable para producción, no para este entorno.
+- **Dónde:** `app/Providers/AppServiceProvider.php`; mensajes ya existentes en `lang/es/validation.php`.
+- **Comprobación:** `tests/Feature/Auth/RegistrationTest.php` (contraseña sin número, sin símbolo y demasiado corta), `tests/Feature/Auth/PasswordUpdateTest.php` y `tests/Feature/Auth/PasswordResetTest.php`.
+- **Efecto sobre los datos existentes:** `Password123!`, la contraseña de las cuentas sembradas, cumple la política; el seeder no hubo que tocarlo.
+
+### 3.19 Captcha en registro y login
+
+- **Activo:** endpoints de registro y login.
+- **Amenaza:** ataques automatizados de suplantación — fuerza bruta y credential stuffing. El rate limiting (3.8) frena el volumen, pero sigue permitiendo intentos automatizados a ritmo bajo. El captcha añade una barrera que exige intervención humana **antes** de que la petición llegue siquiera a comprobar credenciales.
+- **Control:** Google reCAPTCHA v2 (casilla "No soy un robot"), verificado en el servidor contra el endpoint `siteverify` mediante la regla propia `App\Rules\Recaptcha`. La regla se declara con la propiedad `$implicit = true`, un detalle que no es cosmético: Laravel no ejecuta las reglas de un campo ausente salvo que sean implícitas, así que sin ella un POST sin el campo del captcha —exactamente el caso del bot— se saltaría la regla entera. **Falla en cerrado**: si Google no responde, se rechaza la petición.
+- **Dónde:** `app/Rules/Recaptcha.php` y `config/services.php`; se aplica en `RegisterRequest` y `LoginRequest`, y el widget vive en `resources/views/components/recaptcha.blade.php`, compartido por las dos vistas.
+- **Orden respecto al rate limiting (verificado con peticiones reales).** El orden de una petición de login es: CSRF → `throttle:login` (20/min por IP) → captcha → `authenticate()` (límite de 5 por `email|ip`). Es decir, el captcha se comprueba **después** del límite por IP pero **antes** del contador por `email|ip`. Un intento sin captcha resuelto, por tanto, **sí** suma al límite por IP y **no** suma al de 5 intentos por cuenta. Es aceptable —el captcha es la barrera de entrada— pero conviene saberlo al explicar la prueba 6.5.
+- **Limitación importante — leer antes de la entrega:** con las **claves de prueba** de Google que trae `.env.example`, el captcha **no frena ningún bot**: Google responde `success: true` a cualquier cosa (comprobado, ver 8.8). Sirve para demostrar el flujo completo sin crear una cuenta, y el código queda listo para que poner claves reales sea cambiar dos variables del `.env`, sin tocar código.
+- **Comprobación:** `tests/Feature/Seguridad/CaptchaTest.php`. Con `Http::fake()` se simulan tanto una respuesta válida como una rechazada por Google, así que la suite comprueba el control sin depender de internet.
+
 ---
 
 ## 4. Matriz de trazabilidad
@@ -289,6 +324,9 @@ Cada punto indica el activo de la sección 3 de la guía que protege, la amenaza
 | Endpoints de perfil | Escalada horizontal (IDOR) | Rutas sin `{id}` + `UserPolicy` | `IdorTest` |
 | Modelo de datos | Inyección SQL | Eloquent parametrizado | inspección |
 | Campos de texto | XSS almacenado | Escape `{{ }}` de Blade | `XssTest` |
+| Campo de nombre | XSS almacenado | Regla `NombrePropio` (entrada) + escape (salida) | `XssTest`, `RegistrationTest` |
+| Credenciales | Fuerza bruta / diccionario | Contraseña 8+ con letra, número y símbolo | `RegistrationTest` |
+| Endpoints de registro y login | Ataques automatizados | Captcha reCAPTCHA v2 | `CaptchaTest` |
 | Formularios | CSRF | Token + `PreventRequestForgery` | `CsrfTest` |
 | Sesión activa | Robo / fijación de sesión | HttpOnly + Secure + SameSite=Strict | `CookiesSesionTest` |
 | Número de tarjeta | Exposición de datos | Cast `encrypted` (AES-256-CBC) | `CifradoTarjetaTest` |
@@ -312,12 +350,15 @@ npm install && npm run build
 
 # 2. Clave de aplicación y base de datos
 cp .env.example .env
+touch database/database.sqlite
 docker compose run --rm laravel.test php artisan key:generate
 docker compose up -d
 docker compose exec laravel.test php artisan migrate --seed
 ```
 
 La aplicación queda en <http://localhost>.
+
+> **Por qué el `touch`.** `DB_DATABASE` se deja sin definir a propósito (sección 1.4), así que Laravel usa `database/database.sqlite`. Ese archivo **no se versiona** y `migrate` no lo crea solo: sin él la migración falla. Comprobado: `php artisan migrate --no-interaction` contra una ruta que no existe termina en error y no genera el archivo. La alternativa al `touch` es ejecutar `migrate` de forma interactiva, que entonces sí pregunta si se desea crear.
 
 > **Nota sobre Windows:** el script `vendor/bin/sail` es de macOS/Linux/WSL2 y en Windows nativo falla con `Unsupported operating system`. Las dos alternativas son usar `docker compose` directamente (los comandos de arriba) o instalar WSL2 y ejecutar `./vendor/bin/sail`. En WSL2 los comandos son los habituales: `./vendor/bin/sail up -d`, `./vendor/bin/sail artisan migrate --seed`, etc.
 
@@ -330,13 +371,16 @@ composer install
 npm install && npm run build
 cp .env.example .env
 php artisan key:generate
+touch database/database.sqlite   # ver la nota de 5.1: migrate no lo crea solo
 php artisan migrate --seed
 php artisan serve
 ```
 
+> **`npm run build` no es opcional.** Todas las vistas usan `@vite`, así que sin compilar los assets cualquier página falla con `Vite manifest not found`.
+
 ### 5.3 Cuentas de demostración
 
-Las crea `UsuarioSeeder`. La contraseña de todas es `Password123!`.
+Las crea `UsuarioSeeder`. La contraseña de todas es `Password123!`, que cumple la política de contraseñas vigente (control 3.18): 12 caracteres, con letras, números y símbolo.
 
 | Nombre | Correo | Rol | Para qué sirve |
 |---|---|---|---|
@@ -392,9 +436,13 @@ Se puede comprobar en la base de datos:
 php artisan tinker --execute="App\Models\User::find(3)->nombre_completo;"
 ```
 
-### 6.3 XSS almacenado
+### 6.3 XSS almacenado — demostración en dos actos
 
-1. Registrarse con un nombre malicioso:
+La demostración tiene dos partes porque el control tiene dos capas (3.10). Conviene hacerlas en este orden: primero se enseña que el ataque **ya no entra**, y después que, aunque entrara, **tampoco se ejecutaría**.
+
+**Acto 1 — la entrada lo rechaza (control 3.17)**
+
+1. Ir a `/register` e intentar registrarse con:
 
    ```
    Nombre completo: <script>alert("xss")</script>
@@ -402,11 +450,23 @@ php artisan tinker --execute="App\Models\User::find(3)->nombre_completo;"
 
    (el resto de campos, con datos válidos; tarjeta `4111 1111 1111 1111`, vencimiento `08/29`).
 
+**Qué debe pasar:** el formulario **no se envía**. Bajo el campo aparece *"El nombre completo solo puede contener letras, espacios, apóstrofos y guiones"* y no se crea ninguna cuenta. Probar a quitar el `<script>` y dejar solo `Juan123`: se rechaza igual, por los dígitos.
+
+**Acto 2 — la salida lo neutraliza (control 3.10)**
+
+Si el dato llegara a la base de datos por otra vía (una importación, un seeder, una vulnerabilidad distinta), el escape sigue siendo lo único que protege. Se simula insertándolo directamente:
+
+```bash
+php artisan tinker --execute="App\Models\User::factory()->create(['nombre_completo' => '<script>alert(\"xss\")</script>']);"
+```
+
 2. Entrar como `admin@plataforma.test` y abrir el panel de administración.
 
 **Qué debe pasar:** el nombre se ve **como texto** en la tabla, con las etiquetas a la vista (`<script>alert("xss")</script>`) y **no salta ningún diálogo de alerta**. Ver el código fuente de la página (Ctrl+U) confirma que la etiqueta viaja escapada como `&lt;script&gt;`.
 
-Si el control fallara, el script se ejecutaría **en la sesión del administrador**, que es justo lo que busca un atacante.
+Si esta segunda capa fallara, el script se ejecutaría **en la sesión del administrador**, que es justo lo que busca un atacante. Por eso la capa 2 no se puede quitar aunque exista la capa 1: campos de texto libre como `direccion` u `ocupacion` no admiten una regla de charset.
+
+Para volver al estado limpio: `php artisan migrate:fresh --seed`.
 
 ### 6.4 CSRF
 
@@ -421,7 +481,7 @@ Se puede demostrar de forma más cruda desde una terminal:
 curl -i -X POST http://localhost/login -d "email=usuario1@plataforma.test&password=Password123!"
 ```
 
-**Qué debe pasar:** `HTTP 419`, aunque las credenciales sean correctas.
+**Qué debe pasar:** `HTTP 419`, aunque las credenciales sean correctas. El rechazo lo produce el middleware CSRF, que es el primero de la cadena: la petición ni siquiera llega al captcha.
 
 ### 6.5 Rate limiting del login
 
@@ -432,16 +492,28 @@ curl -i -X POST http://localhost/login -d "email=usuario1@plataforma.test&passwo
 
 **Qué debe pasar:** el sexto intento muestra *"Demasiados intentos de acceso. Vuelve a intentarlo en N segundos."* y **no deja entrar**, aunque la contraseña sea correcta. El bloqueo dura un minuto.
 
+> Para esta prueba hace falta conexión a internet: cada intento tiene que pasar el captcha, y con las claves de prueba Google responde siempre que sí, pero hay que llegar hasta él. Si no hay red, el captcha rechaza el intento antes (ver 8.8).
+
 **Credential stuffing desde una IP:**
 
+> **Corregido en la última revisión.** El ejemplo anterior no enviaba el token CSRF, así que las 25 peticiones devolvían **419**, no 429: el middleware CSRF rechaza antes de que el limitador cuente nada. La versión de abajo sí funciona (verificada). Antes de empezar, conviene reiniciar los contadores con `php artisan cache:clear`, porque el límite por IP se comparte con cualquier otra prueba de login que se haya hecho en el mismo minuto.
+
 ```bash
+# 1. Abrir una sesión y quedarse con su token CSRF
+curl -sS -c /tmp/jar.txt -o /tmp/login.html http://localhost/login
+TOKEN=$(grep -o 'name="_token" value="[^"]*"' /tmp/login.html | head -1 | sed 's/.*value="//;s/"//')
+
+# 2. Probar 25 correos distintos desde la misma IP
 for i in $(seq 1 25); do
-  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost/login \
-    -d "_token=TOKEN&email=victima$i@test.com&password=probando$i"
+  curl -sS -b /tmp/jar.txt -c /tmp/jar.txt -o /dev/null -w "%{http_code} " \
+    -X POST http://localhost/login \
+    -d "_token=$TOKEN&email=victima$i@test.com&password=probando$i&g-recaptcha-response=x"
 done
 ```
 
-**Qué debe pasar:** pasadas 20 peticiones en el mismo minuto, el servidor responde **429**. Nótese que un límite solo por `email|ip` (el de Breeze) no detendría esto, porque cada correo abre su propio contador; por eso existe el segundo límite por IP.
+**Qué debe pasar:** los primeros intentos responden **302** (credenciales malas, redirige con error) y a partir de la vigésima petición del minuto el servidor responde **429**. Nótese que un límite solo por `email|ip` (el de Breeze) no detendría esto, porque cada correo abre su propio contador; por eso existe el segundo límite por IP.
+
+El campo `g-recaptcha-response=x` se envía solo para que el ejemplo sea completo: como el middleware `throttle` corre **antes** que la validación del captcha, el contador por IP suma la petición aunque el token sea inventado, y la demostración funciona igual con claves de prueba que con claves reales.
 
 ### 6.6 Atributos de la cookie de sesión
 
@@ -520,15 +592,16 @@ echo ' | visible para el modelo: '.(App\Models\User::find(3) ? 'si' : 'no');
 php artisan test
 ```
 
-**Resultado actual: 111 pruebas, 287 aserciones, todas en verde.**
+**Resultado actual: 129 pruebas, 351 aserciones, todas en verde.**
 
 Las pruebas corren sobre **SQLite en memoria** (configurado en `phpunit.xml`), así que no tocan la base de datos de desarrollo.
 
 | Archivo | Qué cubre |
 |---|---|
 | `tests/Unit/LuhnTest.php` | Algoritmo de Luhn: válidos, inválidos, con separadores, todos los dígitos iguales |
-| `tests/Feature/Auth/RegistrationTest.php` | Registro completo, campos obligatorios, Luhn, normalización, unicidad, CVV no almacenado |
-| `tests/Feature/ProfileTest.php` | Perfil, tarjeta enmascarada, actualización, baja voluntaria |
+| `tests/Feature/Auth/RegistrationTest.php` | Registro completo, campos obligatorios, Luhn, normalización, unicidad, CVV no almacenado, regla del nombre y política de contraseñas |
+| `tests/Feature/ProfileTest.php` | Perfil, tarjeta enmascarada, actualización, baja voluntaria, regla del nombre al editar |
+| `tests/Feature/Seguridad/CaptchaTest.php` | Captcha: sin resolver no pasa, respuesta de Google rechazada, respuesta válida, fallo en cerrado, widget en los dos formularios |
 | `tests/Feature/Seguridad/AccesoPanelAdminTest.php` | 403 para no administradores, 200 para administradores, datos mínimos |
 | `tests/Feature/Seguridad/IdorTest.php` | Policies, rutas sin id, inyección de identificadores ajenos |
 | `tests/Feature/Seguridad/CifradoTarjetaTest.php` | Cifrado en reposo, descifrado, IV aleatorio, inservible sin la clave |
@@ -589,7 +662,7 @@ Es un **estado corrupto del almacén interno de Docker Desktop**, no un problema
 **Qué implica y qué no.**
 
 - Lo que **no** está verificado: que la imagen se construya y que la aplicación arranque *dentro del contenedor*. Es lo único pendiente.
-- Lo que **sí** está verificado: toda la aplicación. Las 111 pruebas automatizadas y las 10 comprobaciones manuales por HTTP de la sección 6 se ejecutaron sobre **PHP 8.4 + SQLite**, que es el mismo motor de base de datos y la misma versión mayor de PHP que usa el contenedor. Nada de lo comprobado depende de que el proceso corra dentro de Docker.
+- Lo que **sí** está verificado: toda la aplicación. Las 129 pruebas automatizadas y las comprobaciones manuales por HTTP de la sección 6 se ejecutaron sobre PHP + SQLite local, que es el mismo motor de base de datos que usa el contenedor. Nada de lo comprobado depende de que el proceso corra dentro de Docker.
 
 **Cómo resolverlo** (decisión de quien administra la máquina, no del proyecto):
 
@@ -603,7 +676,24 @@ También conviene tener en cuenta que, durante el desarrollo, la red de esta má
 
 - **`email_verified_at` y `remember_token`** no están en la tabla de la guía (ver 2.1). Se mantuvieron por ser plomería del framework; quien prefiera un ajuste literal al modelo puede eliminarlas y amputar las funciones asociadas.
 - **Umbral del límite por IP (20/min)** es una elección de compromiso, no un número justificado empíricamente. Un entorno real lo ajustaría con datos de tráfico.
-- **La política de contraseñas** usa los valores por defecto de Laravel (mínimo 8 caracteres). La guía no pide una política concreta y añadir requisitos de complejidad sin pedirlo habría sido sobre-ingeniería, pero es un control que se echa en falta frente a ataques de diccionario —mitigado en parte por el rate limiting y por la comprobación de contraseñas filtradas que Laravel ofrece si se activa.
+- **La política de contraseñas** exigía hasta la última revisión solo el mínimo por defecto de Laravel (8 caracteres), lo cual se reconocía aquí como un control que se echaba en falta frente a ataques de diccionario. Ya no es el caso: desde el endurecimiento (control 3.18) se exige además una letra, un número y un símbolo. Lo que **sigue sin aplicarse** es `uncompromised()`, la comprobación contra contraseñas filtradas, porque obliga a llamar a la API de Have I Been Pwned en cada registro y cada cambio de contraseña. Sigue siendo la mejora más evidente que le queda a este apartado.
+- **El umbral de complejidad** (8 caracteres, una letra, un número, un símbolo) es una elección convencional, no un número derivado de ningún análisis. Es el mínimo que hace defendible la política sin volverla insufrible de usar.
+
+### 8.8 El captcha con claves de prueba no protege de nada, y exige internet
+
+Dos advertencias sobre el captcha que conviene leer antes de la entrega, porque afectan a cómo se presenta la demo:
+
+**Con las claves de prueba, el captcha siempre dice que sí.** El `.env.example` trae las claves de prueba oficiales de Google para que el flujo se pueda demostrar sin crear una cuenta. Se comprobó contra el propio servicio de Google que con esas claves la respuesta es `success: true` **a cualquier cosa** que se envíe:
+
+```
+POST https://www.google.com/recaptcha/api/siteverify
+secret=6LeIxAcTAAAAAGG-…  response=cualquier-cosa     -> {"success": true,  "hostname": "testkey.google.com"}
+secret=secreto-invalido   response=cualquier-cosa     -> {"success": false, "error-codes": ["invalid-input-response"]}
+```
+
+Es decir: el widget se ve, se hace clic y todo pasa, como está previsto, pero **el control no frena ningún bot**. Lo que hay implementado es el flujo completo y verificado; lo que falta para que proteja de verdad son claves propias en `.env`, que es cambiar dos variables y nada de código.
+
+**El captcha exige salida a internet, y falla en cerrado.** Tanto el script del widget como la verificación del servidor van contra `google.com`. Si la máquina de la demo no tiene conexión, el widget no carga y el servidor rechaza todos los intentos: **nadie puede registrarse ni iniciar sesión**. Es deliberado (anteponer el control a la disponibilidad, en la misma línea que el resto del proyecto), pero deja la aplicación inutilizable. Si la demostración va a ser en un aula sin red, hay que cambiar de enfoque antes de empezar, no durante.
 
 ---
 

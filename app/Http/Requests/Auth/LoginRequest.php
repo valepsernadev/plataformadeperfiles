@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Rules\Recaptcha;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
@@ -23,6 +24,22 @@ class LoginRequest extends FormRequest
     /**
      * Get the validation rules that apply to the request.
      *
+     * El captcha se valida aquí, junto al resto de reglas, y no dentro de
+     * `authenticate()`.
+     *
+     * El orden real de una petición de login es:
+     *
+     *   1. middleware del grupo `web`  -> CSRF
+     *   2. middleware de la ruta       -> `throttle:login` (20/min por IP)
+     *   3. validación de este FormRequest -> captcha
+     *   4. `authenticate()`            -> límite de 5 por `email|ip` + Auth::attempt
+     *
+     * Consecuencia que conviene tener presente al demostrar el rate limiting:
+     * un intento sin captcha resuelto **sí** suma al límite por IP del paso 2,
+     * pero **no** al contador de 5 intentos por `email|ip` del paso 4, porque
+     * nunca llega hasta ahí. Es aceptable —el captcha es la barrera de entrada—
+     * pero se documenta para que no sorprenda.
+     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
@@ -30,6 +47,7 @@ class LoginRequest extends FormRequest
         return [
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+            'g-recaptcha-response' => [new Recaptcha],
         ];
     }
 

@@ -53,6 +53,34 @@ class ProfileTest extends TestCase
         $this->assertSame('Banco Nuevo', $usuario->entidad_bancaria);
     }
 
+    /**
+     * La regla del nombre se aplica también aquí, no solo en el registro.
+     *
+     * Si el endurecimiento se hubiera quedado en `RegisterRequest`, este PATCH
+     * sería la puerta de atrás: registrarse con un nombre limpio y acto seguido
+     * cambiarlo por `<script>alert(1)</script>` desde el perfil.
+     */
+    public function test_el_nombre_tampoco_admite_etiquetas_al_editar_el_perfil(): void
+    {
+        $usuario = User::factory()->create(['nombre_completo' => 'Nombre Original']);
+
+        $response = $this->actingAs($usuario)->patch('/perfil', [
+            'nombre_completo' => '<script>alert(1)</script>',
+            'numero_identificacion' => $usuario->numero_identificacion,
+            'email' => $usuario->email,
+            'telefono' => $usuario->telefono,
+            'direccion' => $usuario->direccion,
+            'ocupacion' => $usuario->ocupacion,
+            'ingresos_mensuales' => $usuario->ingresos_mensuales,
+            'entidad_bancaria' => $usuario->entidad_bancaria,
+        ]);
+
+        $response->assertSessionHasErrors('nombre_completo');
+
+        // El nombre anterior queda intacto.
+        $this->assertSame('Nombre Original', $usuario->refresh()->nombre_completo);
+    }
+
     public function test_la_verificacion_de_correo_se_pierde_al_cambiar_de_correo(): void
     {
         $usuario = User::factory()->create();

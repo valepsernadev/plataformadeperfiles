@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Rules\NombrePropio;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -12,12 +13,30 @@ use Illuminate\Validation\Rule;
  * enviar `role=administrador` en el PATCH no cambia nada (escalada de
  * privilegios vertical bloqueada). Tampoco se acepta ningún campo de tarjeta:
  * la tarjeta se actualiza por su propio endpoint, contra su propia tabla.
+ *
+ * `nombre_completo` lleva la MISMA regla que en el registro. Es importante que
+ * sea así: endurecer solo el registro dejaría la puerta de atrás obvia —
+ * registrarse con un nombre limpio y acto seguido editar el perfil para poner
+ * `<script>alert(1)</script>`.
  */
 class PerfilUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
         return true; // la autorización real la hace UserPolicy en el controlador
+    }
+
+    /**
+     * Normaliza el nombre igual que el registro, para que un espacio de más no
+     * provoque un rechazo sorprendente al guardar el perfil.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('nombre_completo')) {
+            $this->merge([
+                'nombre_completo' => NombrePropio::normalizar($this->input('nombre_completo')),
+            ]);
+        }
     }
 
     /**
@@ -28,7 +47,7 @@ class PerfilUpdateRequest extends FormRequest
         $usuarioId = $this->user()->id;
 
         return [
-            'nombre_completo' => ['required', 'string', 'max:150'],
+            'nombre_completo' => ['required', 'string', 'max:150', new NombrePropio],
             'numero_identificacion' => [
                 'required', 'string', 'max:20',
                 Rule::unique('usuarios', 'numero_identificacion')->ignore($usuarioId),
