@@ -1,12 +1,8 @@
 # Entorno de desarrollo con Laravel Sail (`./vendor/bin/sail up`).
 #
-# Un único servicio a propósito: la aplicación usa SQLite, que es un archivo
-# dentro del propio proyecto, así que no hace falta ningún contenedor de base
-# de datos. Menos superficie, menos piezas que mantener.
-#
-# Si más adelante se migra a MySQL o PostgreSQL, se añade aquí el servicio
-# correspondiente con `php artisan sail:install --with=mysql` (o `--with=pgsql`)
-# y se ajusta el bloque de base de datos del .env.
+# Dos servicios: la aplicación y su base de datos PostgreSQL. La configuración
+# de `pgsql` es la que trae Laravel Sail por defecto para este motor (imagen
+# oficial de postgres, volumen persistente y variables tomadas del .env).
 services:
     laravel.test:
         build:
@@ -30,6 +26,29 @@ services:
             - '.:/var/www/html'
         networks:
             - sail
+        depends_on:
+            - pgsql
+    pgsql:
+        image: 'postgres:18-alpine'
+        ports:
+            - '${FORWARD_DB_PORT:-5432}:5432'
+        environment:
+            PGPASSWORD: '${DB_PASSWORD:-secret}'
+            POSTGRES_DB: '${DB_DATABASE}'
+            POSTGRES_USER: '${DB_USERNAME}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-secret}'
+        volumes:
+            - 'sail-pgsql:/var/lib/postgresql'
+            - './vendor/laravel/sail/database/pgsql/create-testing-database.sql:/docker-entrypoint-initdb.d/10-create-testing-database.sql'
+        networks:
+            - sail
+        healthcheck:
+            test: ["CMD", "pg_isready", "-q", "-d", "${DB_DATABASE}", "-U", "${DB_USERNAME}"]
+            retries: 3
+            timeout: 5s
 networks:
     sail:
         driver: bridge
+volumes:
+    sail-pgsql:
+        driver: local
