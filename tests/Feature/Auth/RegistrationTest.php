@@ -195,6 +195,36 @@ class RegistrationTest extends TestCase
     }
 
     // -----------------------------------------------------------------------
+    // Regla del nombre del titular (la misma que la del nombre de la cuenta)
+    // -----------------------------------------------------------------------
+
+    public function test_el_nombre_del_titular_lleva_la_misma_regla_que_el_de_la_cuenta(): void
+    {
+        foreach (['<script>alert(1)</script>', 'Titular 123', 'Titular@banco', 'Titular#1'] as $invalido) {
+            $this->post('/register', $this->datosRegistro([
+                'nombre_titular' => $invalido,
+            ]))->assertSessionHasErrors('nombre_titular');
+        }
+
+        // Ninguno de los intentos llegó a crear nada.
+        $this->assertDatabaseCount('usuarios', 0);
+        $this->assertDatabaseCount('tarjetas', 0);
+    }
+
+    public function test_el_nombre_del_titular_admite_tildes_apostrofos_y_guiones(): void
+    {
+        $response = $this->post('/register', $this->datosRegistro([
+            'nombre_titular' => "María José O'Brien-Pérez",
+        ]));
+
+        $response->assertSessionHasNoErrors();
+        $this->assertSame(
+            "María José O'Brien-Pérez",
+            User::firstWhere('email', 'persona@example.test')->tarjeta->nombre_titular
+        );
+    }
+
+    // -----------------------------------------------------------------------
     // Política de contraseñas (AppServiceProvider::configurarPoliticaDeContrasenas)
     // -----------------------------------------------------------------------
 

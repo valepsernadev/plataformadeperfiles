@@ -132,6 +132,6 @@ Los controles se implementan en ese orden de prioridad.
 
 - No se separan roles en una tabla aparte (con dos roles, un enum basta).
 - No se cifra cada campo confidencial — solo el dato clasificado como restringido.
-- No se normaliza `nombre_titular` contra `usuarios.nombre_completo`.
+- No se normaliza `nombre_titular` contra `usuarios.nombre_completo`: la tarjeta puede estar a nombre de otra persona. Ojo, esto es independiente de la validación: desde el endurecimiento de la sección 7, los dos campos comparten la misma regla de caracteres, pero no se obliga a que coincidan.
 - No se diseña soporte multi-tarjeta (no fue pedido en el enunciado).
 - No se solicita ni almacena el código de seguridad (CVV) de la tarjeta.

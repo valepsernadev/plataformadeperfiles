@@ -39,10 +39,10 @@ class RegisterRequest extends FormRequest
      *
      * - `numero_tarjeta`: acepta tanto `4111 1111 1111 1111` como
      *   `4111-1111-1111-1111`. Lo que se guarda es la cadena de dígitos.
-     * - `nombre_completo`: recorta los espacios de los extremos y colapsa los
-     *   repetidos. Sin esto, un nombre pegado desde otro sitio con un espacio
-     *   de más (`"Juan  Pérez"`) sería rechazado por `NombrePropio` con un error
-     *   confuso para quien lo escribió, cuando en realidad el nombre está bien.
+     * - Los dos campos de nombre: recorta los espacios de los extremos y
+     *   colapsa los repetidos. Sin esto, un nombre pegado desde otro sitio con
+     *   un espacio de más (`"Juan  Pérez"`) sería rechazado por `NombrePropio`
+     *   con un error confuso, cuando el nombre está bien escrito.
      */
     protected function prepareForValidation(): void
     {
@@ -52,10 +52,18 @@ class RegisterRequest extends FormRequest
             ]);
         }
 
-        if ($this->has('nombre_completo')) {
-            $this->merge([
-                'nombre_completo' => NombrePropio::normalizar($this->input('nombre_completo')),
-            ]);
+        $this->normalizarNombre('nombre_completo');
+        $this->normalizarNombre('nombre_titular');
+    }
+
+    /**
+     * Aplica a un campo de nombre la misma normalización que valida
+     * `App\Rules\NombrePropio`.
+     */
+    private function normalizarNombre(string $campo): void
+    {
+        if ($this->has($campo)) {
+            $this->merge([$campo => NombrePropio::normalizar($this->input($campo))]);
         }
     }
 
@@ -84,7 +92,11 @@ class RegisterRequest extends FormRequest
             // --- Tarjeta (Restringida) ---
             'numero_tarjeta' => ['required', 'string', new Luhn],
             'fecha_vencimiento' => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])\/\d{2}$/'],
-            'nombre_titular' => ['required', 'string', 'max:150'],
+            // Misma regla que `nombre_completo`: el titular es una persona, y
+            // el campo se pinta tal cual en su perfil. Que pueda diferir del
+            // nombre de la cuenta no significa que pueda contener cualquier
+            // cosa.
+            'nombre_titular' => ['required', 'string', 'max:150', new NombrePropio],
 
             // --- Captcha (guía, secciones 4 y 5) ---
             // `g-recaptcha-response` es el nombre real del campo que envía el

@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Rules\Luhn;
+use App\Rules\NombrePropio;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
@@ -15,6 +16,11 @@ use Illuminate\Foundation\Http\FormRequest;
  * tocar la tarjeta de otra persona (IDOR).
  *
  * El CVV no se pide ni se almacena (guía, sección 10).
+ *
+ * `nombre_titular` lleva la misma regla que el nombre de la cuenta: este es el
+ * segundo sitio donde se escribe, así que restringirlo solo en el registro
+ * habría dejado la puerta de atrás de siempre —registrarse con un titular
+ * limpio y cambiarlo acto seguido desde "Actualizar tarjeta"—.
  */
 class TarjetaUpdateRequest extends FormRequest
 {
@@ -30,6 +36,14 @@ class TarjetaUpdateRequest extends FormRequest
                 'numero_tarjeta' => preg_replace('/\D/', '', (string) $this->input('numero_tarjeta')),
             ]);
         }
+
+        // Misma normalización que el registro, para que un espacio de más no
+        // provoque un rechazo sorprendente al guardar la tarjeta.
+        if ($this->has('nombre_titular')) {
+            $this->merge([
+                'nombre_titular' => NombrePropio::normalizar($this->input('nombre_titular')),
+            ]);
+        }
     }
 
     /**
@@ -40,7 +54,7 @@ class TarjetaUpdateRequest extends FormRequest
         return [
             'numero_tarjeta' => ['required', 'string', new Luhn],
             'fecha_vencimiento' => ['required', 'string', 'regex:/^(0[1-9]|1[0-2])\/\d{2}$/'],
-            'nombre_titular' => ['required', 'string', 'max:150'],
+            'nombre_titular' => ['required', 'string', 'max:150', new NombrePropio],
         ];
     }
 

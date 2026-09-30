@@ -118,7 +118,7 @@ Siguiendo la sección 10 de la guía y la restricción de no sobre-ingeniería:
 - **No se cifra ningún campo salvo `numero_tarjeta`.** El resto se protege con autorización. Cifrar datos que necesitan ser buscados u ordenados (correo, cédula) obligaría a renunciar a índices y validaciones de unicidad a cambio de poco.
 - **No hay soporte multi-tarjeta.** El formulario pide una, y la relación es 1 a 1 con `unique` en la clave foránea.
 - **No se guarda el CVV** en ninguna forma (ver 3.16).
-- **No se normaliza `nombre_titular`** contra `usuarios.nombre_completo`.
+- **No se normaliza `nombre_titular`** contra `usuarios.nombre_completo`: una tarjeta puede estar a nombre de otra persona y el sistema no lo impide. Desde el endurecimiento de la validación (control 3.17) los dos campos comparten la **misma regla de caracteres**, pero siguen siendo independientes: no se comparan entre sí ni se obliga a que coincidan.
 
 ---
 
@@ -286,8 +286,9 @@ Cada punto indica el activo de la sección 3 de la guía que protege, la amenaza
 - **Control:** regla propia `App\Rules\NombrePropio`, que acepta letras Unicode (tildes incluidas), espacios, apóstrofos (recto y tipográfico) y guiones, y rechaza todo lo demás —dígitos, `<`, `>`, `@`, `#`—. El patrón exige además la estructura "palabra (separador palabra)\*", así que el nombre no puede empezar ni terminar con un separador. Un `prepareForValidation()` normaliza antes de validar (recorta extremos y colapsa espacios repetidos), para que un espacio de más al pegar no se convierta en un error confuso.
 - **Dónde:** `app/Rules/NombrePropio.php`, aplicado en `app/Http/Requests/Auth/RegisterRequest.php` **y** en `app/Http/Requests/PerfilUpdateRequest.php`.
 - **Por qué en los dos sitios:** endurecer solo el registro habría dejado una puerta de atrás trivial — registrarse con un nombre limpio y acto seguido cambiarlo por `<script>…</script>` desde el perfil. `tests/Feature/ProfileTest.php` cubre justamente ese camino.
-- **Lo que NO se restringe, a propósito:** `direccion`, `ocupacion` y `nombre_titular` son texto libre y no llevan esta regla. Sin una forma predecible no hay charset que valga, y para ellos la protección es el escape de salida (3.10).
-- **Comprobación:** `tests/Feature/Auth/RegistrationTest.php` y `tests/Feature/ProfileTest.php`. También a mano: intentar registrarse con `Juan123` y ver el rechazo.
+- **`nombre_titular` lleva la misma regla.** Es el nombre de una persona igual que el de la cuenta, y se pinta tal cual en el perfil. Que pueda **diferir** del nombre de la cuenta no significa que pueda contener cualquier cosa: son dos cosas distintas y conviene no confundirlas. Se aplica en los dos sitios donde se escribe —el registro y el endpoint de actualización de tarjeta (`app/Http/Requests/TarjetaUpdateRequest.php`)—, porque restringirlo solo en el registro dejaría la puerta de atrás de siempre.
+- **Lo que NO se restringe, a propósito:** `direccion` y `ocupacion` son texto libre y no llevan esta regla. Sin una forma predecible no hay charset que valga, y para ellos la protección es el escape de salida (3.10).
+- **Comprobación:** `tests/Feature/Auth/RegistrationTest.php` y `tests/Feature/ProfileTest.php`. También a mano: intentar registrarse con `Juan123` y ver el rechazo, tanto en el nombre de la cuenta como en el del titular.
 
 ### 3.18 Política de contraseñas: longitud mínima y complejidad
 
@@ -325,6 +326,7 @@ Cada punto indica el activo de la sección 3 de la guía que protege, la amenaza
 | Modelo de datos | Inyección SQL | Eloquent parametrizado | inspección |
 | Campos de texto | XSS almacenado | Escape `{{ }}` de Blade | `XssTest` |
 | Campo de nombre | XSS almacenado | Regla `NombrePropio` (entrada) + escape (salida) | `XssTest`, `RegistrationTest` |
+| Nombre del titular de la tarjeta | XSS almacenado | Regla `NombrePropio` en registro y en actualización de tarjeta | `RegistrationTest`, `ProfileTest` |
 | Credenciales | Fuerza bruta / diccionario | Contraseña 8+ con letra, número y símbolo | `RegistrationTest` |
 | Endpoints de registro y login | Ataques automatizados | Captcha reCAPTCHA v2 | `CaptchaTest` |
 | Formularios | CSRF | Token + `PreventRequestForgery` | `CsrfTest` |
@@ -451,6 +453,8 @@ La demostración tiene dos partes porque el control tiene dos capas (3.10). Conv
    (el resto de campos, con datos válidos; tarjeta `4111 1111 1111 1111`, vencimiento `08/29`).
 
 **Qué debe pasar:** el formulario **no se envía**. Bajo el campo aparece *"El nombre completo solo puede contener letras, espacios, apóstrofos y guiones"* y no se crea ninguna cuenta. Probar a quitar el `<script>` y dejar solo `Juan123`: se rechaza igual, por los dígitos.
+
+La misma regla vale para el **nombre del titular de la tarjeta**, más abajo en el mismo formulario: poner ahí `<script>alert(1)</script>` o `Titular 123` también se rechaza. Y no solo en el registro: intentar cambiar el titular a algo así desde "Actualizar tarjeta" en el perfil se rechaza igual.
 
 **Acto 2 — la salida lo neutraliza (control 3.10)**
 
@@ -592,7 +596,7 @@ echo ' | visible para el modelo: '.(App\Models\User::find(3) ? 'si' : 'no');
 php artisan test
 ```
 
-**Resultado actual: 129 pruebas, 351 aserciones, todas en verde.**
+**Resultado actual: 133 pruebas, 375 aserciones, todas en verde.**
 
 Las pruebas corren sobre **SQLite en memoria** (configurado en `phpunit.xml`), así que no tocan la base de datos de desarrollo.
 
@@ -662,7 +666,7 @@ Es un **estado corrupto del almacén interno de Docker Desktop**, no un problema
 **Qué implica y qué no.**
 
 - Lo que **no** está verificado: que la imagen se construya y que la aplicación arranque *dentro del contenedor*. Es lo único pendiente.
-- Lo que **sí** está verificado: toda la aplicación. Las 129 pruebas automatizadas y las comprobaciones manuales por HTTP de la sección 6 se ejecutaron sobre PHP + SQLite local, que es el mismo motor de base de datos que usa el contenedor. Nada de lo comprobado depende de que el proceso corra dentro de Docker.
+- Lo que **sí** está verificado: toda la aplicación. Las 133 pruebas automatizadas y las comprobaciones manuales por HTTP de la sección 6 se ejecutaron sobre PHP + SQLite local, que es el mismo motor de base de datos que usa el contenedor. Nada de lo comprobado depende de que el proceso corra dentro de Docker.
 
 **Cómo resolverlo** (decisión de quien administra la máquina, no del proyecto):
 

@@ -166,4 +166,45 @@ class ProfileTest extends TestCase
         // La tarjeta anterior queda intacta.
         $this->assertSame('4111111111111111', $usuario->tarjeta()->first()->numero_tarjeta);
     }
+
+    /**
+     * El nombre del titular lleva la misma regla que el nombre de la cuenta.
+     * Se comprueba en ESTE endpoint y no solo en el registro: si la regla
+     * viviera únicamente en `RegisterRequest`, este `PUT` sería la puerta de
+     * atrás para poner cualquier cosa después de registrarse.
+     */
+    public function test_el_nombre_del_titular_no_admite_etiquetas_ni_digitos(): void
+    {
+        $usuario = $this->crearCuentaConTarjeta();
+
+        foreach (['<script>alert(1)</script>', 'Titular 123', 'Titular@banco', 'Titular_Gómez'] as $invalido) {
+            $this->actingAs($usuario)->put('/perfil/tarjeta', [
+                'numero_tarjeta' => '5555555555554444',
+                'fecha_vencimiento' => '12/30',
+                'nombre_titular' => $invalido,
+            ])->assertSessionHasErrors('nombre_titular');
+        }
+
+        // La tarjeta original sigue intacta tras todos los intentos.
+        $tarjeta = $usuario->tarjeta()->first();
+
+        $this->assertSame('4111111111111111', $tarjeta->numero_tarjeta);
+        $this->assertSame($usuario->nombre_completo, $tarjeta->nombre_titular);
+    }
+
+    public function test_el_nombre_del_titular_admite_tildes_apostrofos_y_guiones(): void
+    {
+        $usuario = $this->crearCuentaConTarjeta();
+
+        $this->actingAs($usuario)->put('/perfil/tarjeta', [
+            'numero_tarjeta' => '5555555555554444',
+            'fecha_vencimiento' => '12/30',
+            'nombre_titular' => "María José O'Brien-Pérez",
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(
+            "María José O'Brien-Pérez",
+            $usuario->tarjeta()->first()->nombre_titular
+        );
+    }
 }
